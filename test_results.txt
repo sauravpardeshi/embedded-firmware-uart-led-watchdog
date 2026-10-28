@@ -1,0 +1,223 @@
+$ gcc -std=c99 -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Wcast-qual -Wstrict-prototypes -Werror -O2 led_controller.c -o ledctl
+(no warnings, no errors)
+binary size: 42960 bytes
+$ ./ledctl --selftest
+LED-CTRL firmware self-test (simulated target)
+==============================================
+
+TC-01  Boot banner, initial state
+    [PASS] boot banner shows firmware version
+    [PASS] reset cause POWER_ON, reset counter 0
+    [PASS] prompt hint printed
+    [PASS] LED is off after boot
+    [PASS] default mode OFF, brightness 100 %
+
+TC-02  SysTick time base accuracy and tick servicing
+    [PASS] 10 000 SysTick interrupts -> uptime exactly 10 000 ms
+    [PASS] main loop never fell behind (0 tick overruns)
+    [PASS] no unserviced ticks left
+
+TC-03  Basic UART commands, case-insensitivity
+    [PASS] HELP lists the commands
+    [PASS] VER returns version
+    [PASS] LED ON replies OK and drives LED to 100 %
+    [PASS] lower-case 'led off' accepted, LED off
+
+TC-04  BRIGHT command and argument validation
+    [PASS] BRIGHT 40 -> LED level 40 %
+    [PASS] BRIGHT 0 accepted (lower bound)
+    [PASS] BRIGHT 100 accepted (upper bound)
+    [PASS] BRIGHT 101 rejected, value unchanged
+    [PASS] BRIGHT -1 rejected
+    [PASS] BRIGHT abc -> ERR BAD ARG
+    [PASS] BRIGHT 5x (trailing junk) -> ERR BAD ARG
+    [PASS] BRIGHT without value -> ERR MISSING ARG
+
+TC-05  Blink timing (timer interrupt accuracy)
+    [PASS] LED BLINK 200 accepted
+    [PASS] at least 10 blink cycles in 2.2 s
+    [PASS] every rising-edge interval is exactly 200 ms
+    [PASS] ON time is exactly 100 ms in each cycle (50 % duty)
+    [PASS] period 49 ms rejected (below minimum)
+    [PASS] period 5001 ms rejected (above maximum)
+    [PASS] LED BLINK without argument uses default 500 ms
+    [PASS] minimum period 50 ms generated correctly
+
+TC-06  Breathe (triangle PWM fade)
+    [PASS] peak brightness reaches 100 %
+    [PASS] fade returns to 0 %
+    [PASS] peak occurs half-way through the 2 s cycle
+    [PASS] level rises monotonically to the peak
+    [PASS] level falls monotonically after the peak
+    [PASS] BRIGHT 50 scales the breathe peak to 50 %
+
+TC-07  Input robustness: unknown, blank, tabs, backspace, too many args
+    [PASS] unknown command -> ERR UNKNOWN CMD
+    [PASS] blank lines produce no reply
+    [PASS] tab used as separator accepted
+    [PASS] extra spaces ignored
+    [PASS] backspace editing works (LEDD<BS> ON -> LED ON)
+    [PASS] LED BLINK 100 200 (extra argument) -> ERR TOO MANY ARGS
+    [PASS] four tokens -> ERR TOO MANY ARGS
+    [PASS] LED without sub-command -> ERR MISSING ARG
+    [PASS] LED SPIN -> ERR BAD ARG
+
+TC-08  UART overflow and over-long line handling
+    [PASS] 37 bytes dropped and counted (63 fit in the ring)
+    [PASS] over-long line rejected with ERR LINE TOO LONG
+    [PASS] system fully usable after the overflow
+    [PASS] STATUS reports rx overflow counter 37
+    [PASS] a line of exactly 40 characters is accepted
+
+TC-09  Temperature measurement accuracy (ADC + filter)
+    [PASS] true 0.0 degC -> reported within +-0.2 degC (got 0.1)
+    [PASS] true 25.0 degC -> reported within +-0.2 degC (got 25.0)
+    [PASS] true 37.5 degC -> reported within +-0.2 degC (got 37.5)
+    [PASS] true 50.0 degC -> reported within +-0.2 degC (got 49.9)
+    [PASS] true 99.0 degC -> reported within +-0.2 degC (got 99.1)
+
+TC-10  Moving average suppresses a single-sample glitch
+    [PASS] glitch is visible but divided by the window (peak about 29.4 degC)
+    [PASS] no false alert from a one-sample 60 degC glitch
+
+TC-11  Over-temperature alert, LED override and hysteresis
+    [PASS] no alert at 25.0 degC
+    [PASS] ALERT ON raised within 1 s of reaching 40 degC
+    [PASS] LED forced to 100 ms blink during alert (user mode was OFF)
+    [PASS] 34.0 degC is inside the hysteresis band: alert stays on
+    [PASS] ALERT OFF once temperature drops below 33.0 degC
+    [PASS] LED returns to the user mode (OFF) after the alert
+    [PASS] 34.5 degC (just below 35.0) does not trigger
+    [PASS] 34.9 degC (noise-free): no alert
+    [PASS] exactly 35.0 degC raises the alert (>= comparison)
+    [PASS] 33.1 degC is still inside the hysteresis band
+    [PASS] exactly 33.0 degC clears the alert (<= comparison)
+
+TC-12  THRESH command
+    [PASS] 30.0 degC, default threshold 35: no alert
+    [PASS] THRESH 28 accepted
+    [PASS] alert raised after threshold lowered to 28 degC
+    [PASS] THRESH 9 rejected, old value kept
+    [PASS] THRESH 101 rejected
+    [PASS] THRESH hot rejected
+    [PASS] THRESH without value -> ERR MISSING ARG
+
+TC-13  STATUS report and TEMP before first sample
+    [PASS] TEMP before the first sample -> ERR NO DATA
+    [PASS] STATUS shows mode and period
+    [PASS] STATUS shows brightness and threshold
+    [PASS] STATUS shows temperature and alert flag
+    [PASS] STATUS shows health counters
+
+TC-14  Watchdog recovers a hung main loop
+    [PASS] HANG command stops the main loop
+    [PASS] no reset before the 2 s timeout
+    [PASS] reset counter still 0
+    [PASS] hung firmware ignores UART commands
+    [PASS] watchdog reset happened and was reported
+    [PASS] reset occurred about 2000 ms after the hang
+    [PASS] firmware restarted in its default state
+    [PASS] reset counter persisted in the backup register and is reported
+    [PASS] console works again after recovery
+
+TC-15  Ring buffer unit test (wrap-around, full, empty)
+    [PASS] empty buffer: pop fails
+    [PASS] 500 bytes pushed/popped in order across many wrap-arounds
+    [PASS] pushing 74 bytes into a 64-slot ring drops exactly 11 (one slot is the full marker)
+    [PASS] 63 oldest bytes are preserved intact
+
+TC-16  ADC conversion unit test
+    [PASS] code 0 -> 0.0 degC
+    [PASS] code 310 -> 25.0 degC
+    [PASS] full scale 4095 -> 330.0 degC (3.3 V at 10 mV/degC)
+    [PASS] code 745 -> 60.0 degC
+    [PASS] formatter prints negative values (-3.5)
+    [PASS] formatter prints 0.5
+
+==============================================
+RESULT: 97 checks passed, 0 failed -> ALL PASS
+exit code: 0
+$ gcc -std=c99 -Wall -Wextra -Wpedantic -g -O1 -fsanitize=address,undefined led_controller.c -o ledctl_san
+$ ./ledctl_san --selftest | tail -3
+
+==============================================
+RESULT: 97 checks passed, 0 failed -> ALL PASS
+exit code: 0
+$ ./ledctl_san --demo > /dev/null
+exit code: 0 (no sanitizer reports)
+$ ./ledctl --demo --csv demo_trace.csv
+--- DEMO: scripted scenario on the simulated board ---
+[      0 ms] TX> BOOT LED-CTRL v1.0.0 reset=POWER_ON resets=0
+[      0 ms] TX> Type HELP for commands.
+[    500 ms] RX> HELP
+[    500 ms] TX> COMMANDS: HELP VER LED ON|OFF|BLINK [ms]|BREATHE BRIGHT <0-100> TEMP THRESH <10-100> STATUS HANG
+[    502 ms] RX> LED BLINK 400
+[    503 ms] TX> OK LED BLINK 400
+[   2505 ms] RX> LED BREATHE
+[   2506 ms] TX> OK LED BREATHE
+[   5508 ms] RX> BRIGHT 60
+[   5509 ms] TX> OK BRIGHT 60
+[   6511 ms] RX> LED ON
+[   6512 ms] TX> OK LED ON
+[   7014 ms] RX> LED OFF
+[   7015 ms] TX> OK LED OFF
+[   7517 ms] RX> TEMP
+[   7517 ms] TX> OK TEMP 25.0C
+[   7519 ms] RX> LED BLINK 1000
+[   7521 ms] TX> OK LED BLINK 1000
+[   7523 ms] RX> BRIGHT 200
+[   7524 ms] TX> ERR RANGE 0-100
+[   7526 ms] RX> FLY
+[   7526 ms] TX> ERR UNKNOWN CMD
+[   7528 ms] RX> STATUS
+[   7529 ms] TX> STATUS mode=BLINK period=1000 bright=60 led=60 temp=25.0C thresh=35C alert=0 up=7529ms rxovf=0 tickovr=0 wdg_resets=0
+--- temperature rises 25 -> 40 degC (threshold 35) ---
+[  11800 ms] TX> ALERT ON temp=35.0C thresh=35C
+[  14531 ms] RX> STATUS
+[  14532 ms] TX> STATUS mode=BLINK period=1000 bright=60 led=60 temp=40.0C thresh=35C alert=1 up=14532ms rxovf=0 tickovr=0 wdg_resets=0
+--- temperature falls 40 -> 28 degC ---
+[  17700 ms] TX> ALERT OFF temp=32.8C thresh=35C
+[  20334 ms] RX> STATUS
+[  20334 ms] TX> STATUS mode=BLINK period=1000 bright=60 led=0 temp=28.0C thresh=35C alert=0 up=20334ms rxovf=0 tickovr=0 wdg_resets=0
+--- watchdog demonstration ---
+[  20336 ms] RX> HANG
+[  20337 ms] TX> OK HANG main loop stopped, watchdog will reset in 2000 ms
+[  22337 ms] TX> BOOT LED-CTRL v1.0.0 reset=WATCHDOG resets=1
+[  22337 ms] TX> Type HELP for commands.
+[  22939 ms] RX> STATUS
+[  22939 ms] TX> STATUS mode=OFF period=500 bright=100 led=0 temp=28.0C thresh=35C alert=0 up=603ms rxovf=0 tickovr=0 wdg_resets=1
+--- end of demo (simulated time 22942 ms) ---
+ID | Injected bug | Failed checks | First failing check
+M1 | Blink half-period off by one | 1 | ON time is exactly 100 ms in each cycle (50 % duty)
+M2 | Alert hysteresis removed | 3 | 34.0 degC is inside the hysteresis band: alert stays on
+M3 | Ring buffer full check removed | 5 | 37 bytes dropped and counted (63 fit in the ring)
+M4 | ADC rounding removed | 4 | exactly 35.0 degC raises the alert (>= comparison)
+M5 | Watchdog timeout too long (5 s) | 5 | watchdog reset happened and was reported
+M6 | Alert does not override LED mode | 1 | LED forced to 100 ms blink during alert (user mode was OFF)
+M7 | Moving-average window reduced to 1 | 2 | glitch is visible but divided by the window (peak about 29.4 degC)
+M8 | TAB handling bug re-introduced | 1 | tab used as separator accepted
+M9 | BRIGHT upper limit 101 instead of 100 | 1 | BRIGHT 101 rejected, value unchanged
+M10 | Over-long line not flagged | 1 | over-long line rejected with ERR LINE TOO LONG
+M11 | Threshold compared with > instead of >= | 2 | exactly 35.0 degC raises the alert (>= comparison)
+M12 | Breathe peak not scaled by brightness | 1 | BRIGHT 50 scales the breathe peak to 50 %
+[      0 ms] TX> BOOT LED-CTRL v1.0.0 reset=POWER_ON resets=0
+[      0 ms] TX> Type HELP for commands.
+Interactive mode. Type UART commands. Directives: @wait <ms>, @temp <degC>, @quit
+[      0 ms] RX> LED BLINK 250
+[      1 ms] TX> OK LED BLINK 250
+[   1053 ms] SIM> temperature set to 41.0 degC
+[   1500 ms] TX> ALERT ON temp=35.0C thresh=35C
+[   2553 ms] RX> STATUS
+[   2553 ms] TX> STATUS mode=BLINK period=250 bright=100 led=0 temp=41.0C thresh=35C alert=1 up=2553ms rxovf=0 tickovr=0 wdg_resets=0
+[   2606 ms] RX> BRIGHT 300
+[   2606 ms] TX> ERR RANGE 0-100
+alert_on_latency_ms=600
+alert_off_latency_ms=700
+wdg_reset_after_ms=1998
+temp true=0 got=1 err=1
+temp true=250 got=251 err=1
+temp true=375 got=376 err=1
+temp true=500 got=500 err=0
+temp true=990 got=991 err=1
+breathe_peak_index_ms=997 peak=100
+byte_time_us=86.8 ring_63_bytes_ms=5.47 line40_ms=3.47
